@@ -179,6 +179,8 @@ const configuredOrigins = [
 
   'https://mobasket.in',
   'https://www.mobasket.in',
+  'https://order.mobasket.in',
+  'https://www.order.mobasket.in',
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:5174',
