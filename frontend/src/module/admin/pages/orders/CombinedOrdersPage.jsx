@@ -19,8 +19,10 @@ const AUTO_REFRESH_MS = 10000
 const SIDEBAR_ALERT_KEY = "adminAllOrdersAttentionUntil"
 const ORDERS_ALERT_COUNT_KEY = "adminAllOrdersAttentionState"
 const ORDER_SOUND_MUTED_KEY = "adminAllOrdersSoundMuted"
-const PLATFORM_PAGE_SIZE = 50
-const MAX_PLATFORM_SYNC_PAGES = 40
+const PLATFORM_PAGE_SIZE = 200
+// Every order has to load: the summary cards add up the loaded orders, so a
+// page cap silently dropped the oldest ones from the totals as new orders came in.
+const PLATFORM_SYNC_CONCURRENCY = 5
 const canAdminDeleteOrders = (admin) =>
   String(admin?.role || "").trim().toLowerCase() === "super_admin"
 
@@ -396,27 +398,30 @@ export default function CombinedOrdersPage() {
           return firstPayload.orders
         }
 
-        const totalPages = Math.min(
-          Number(firstPayload.pagination?.pages || 1),
-          MAX_PLATFORM_SYNC_PAGES
-        )
+        const totalPages = Number(firstPayload.pagination?.pages || 1)
 
         if (totalPages <= 1) {
           return firstPayload.orders
         }
 
-        const remainingResponses = await Promise.all(
-          Array.from({ length: totalPages - 1 }, (_, index) =>
-            adminAPI.getOrders({
-              platform,
-              page: index + 2,
-              limit: PLATFORM_PAGE_SIZE,
-            })
+        const allOrders = [...firstPayload.orders]
+        for (let page = 2; page <= totalPages; page += PLATFORM_SYNC_CONCURRENCY) {
+          const pageNumbers = Array.from(
+            { length: Math.min(PLATFORM_SYNC_CONCURRENCY, totalPages - page + 1) },
+            (_, index) => page + index
           )
-        )
-
-        const remainingOrders = remainingResponses.flatMap((response) => getOrdersPayload(response).orders)
-        return [...firstPayload.orders, ...remainingOrders]
+          const responses = await Promise.all(
+            pageNumbers.map((pageNumber) =>
+              adminAPI.getOrders({
+                platform,
+                page: pageNumber,
+                limit: PLATFORM_PAGE_SIZE,
+              })
+            )
+          )
+          responses.forEach((response) => allOrders.push(...getOrdersPayload(response).orders))
+        }
+        return allOrders
       }
 
       const [mofoodOrders, mogroceryOrders] = await Promise.all([
