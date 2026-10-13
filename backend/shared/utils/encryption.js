@@ -155,9 +155,12 @@ export function decrypt(encryptedText) {
 
     return rememberDecrypted(encryptedText, decrypted);
   } catch (error) {
-    console.error('Decryption error:', error);
+    // A value encrypted under a different key fails the same way every time.
+    // Remember the failure so it is reported once, not on every request, and
+    // the costly key derivation is not repeated.
+    console.error(`Decryption error (value will read as empty): ${error.message}`);
     // If decryption fails, return empty string (might be unencrypted legacy data)
-    return '';
+    return rememberDecrypted(encryptedText, '');
   }
 }
 
