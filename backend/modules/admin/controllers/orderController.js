@@ -182,7 +182,7 @@ const buildPlatformPrimaryFilter = (platform) => {
 };
 
 const ADMIN_ORDERS_DEFAULT_LIMIT = 25;
-const ADMIN_ORDERS_MAX_LIMIT = 50;
+const ADMIN_ORDERS_MAX_LIMIT = 200;
 
 const normalizeAdminOrdersPage = (value) => {
   const parsed = Number.parseInt(value, 10);
@@ -1058,8 +1058,6 @@ export const getOrders = asyncHandler(async (req, res) => {
  * Permanently remove an order and linked records.
  */
 export const deleteOrderPermanently = asyncHandler(async (req, res) => {
-  const session = await mongoose.startSession();
-
   try {
     if (!canAdminDeleteOrders(req.user)) {
       return errorResponse(res, 403, 'Only super admins can permanently delete orders');
@@ -1070,66 +1068,53 @@ export const deleteOrderPermanently = asyncHandler(async (req, res) => {
       return errorResponse(res, 400, 'Order ID is required');
     }
 
-    let deletedOrder = null;
+    // No transaction: after the reconnect logic in config/db.js runs,
+    // mongoose.startSession() can return a session from a different MongoClient
+    // than the models use, which made every delete fail. Each step below is
+    // safe to repeat and the order itself is removed last, so a delete that
+    // fails part-way can simply be retried.
+    const order = await findOrderByAdminIdentifier(orderIdentifier);
 
-    await session.withTransaction(async () => {
-      const order = await findOrderByAdminIdentifier(orderIdentifier, session);
-
-      if (!order) {
-        throw new Error('ORDER_NOT_FOUND');
-      }
-      if (!canAdminAccessOrder(req.user, order)) {
-        throw new Error('ORDER_ZONE_FORBIDDEN');
-      }
-
-      const isGroceryOrder =
-        String(order.restaurantPlatform || order.platform || '').toLowerCase() === 'mogrocery';
-      const groceryStockWasReduced = Boolean(order.stockSync?.grocery?.reduced);
-      const groceryStockAlreadyRestored = Boolean(order.stockSync?.grocery?.restored);
-
-      if (
-        isGroceryOrder &&
-        groceryStockWasReduced &&
-        !groceryStockAlreadyRestored &&
-        order.status !== 'delivered'
-      ) {
-        await restoreGroceryStockForOrder(order);
-      }
-
-      const orderId = order._id;
-
-      await Promise.all([
-        Payment.deleteMany({ orderId }, { session }),
-        OrderSettlement.deleteMany({ orderId }, { session }),
-        OrderEvent.deleteMany({ orderId }, { session }),
-        ETALog.deleteMany({ orderId }, { session }),
-        AuditLog.deleteMany({ orderId }, { session }),
-      ]);
-
-      await Order.deleteOne({ _id: orderId }, { session });
-      deletedOrder = order;
-    });
-
-    if (!deletedOrder) {
+    if (!order) {
       return errorResponse(res, 404, 'Order not found');
     }
-
-    return successResponse(res, 200, 'Order deleted permanently', {
-      orderId: deletedOrder.orderId,
-      id: deletedOrder._id,
-    });
-  } catch (error) {
-    if (error?.message === 'ORDER_NOT_FOUND') {
-      return errorResponse(res, 404, 'Order not found');
-    }
-    if (error?.message === 'ORDER_ZONE_FORBIDDEN') {
+    if (!canAdminAccessOrder(req.user, order)) {
       return errorResponse(res, 403, 'Access denied for orders outside your assigned zones');
     }
 
+    const isGroceryOrder =
+      String(order.restaurantPlatform || order.platform || '').toLowerCase() === 'mogrocery';
+    const groceryStockWasReduced = Boolean(order.stockSync?.grocery?.reduced);
+    const groceryStockAlreadyRestored = Boolean(order.stockSync?.grocery?.restored);
+
+    if (
+      isGroceryOrder &&
+      groceryStockWasReduced &&
+      !groceryStockAlreadyRestored &&
+      order.status !== 'delivered'
+    ) {
+      await restoreGroceryStockForOrder(order);
+    }
+
+    const orderId = order._id;
+
+    await Promise.all([
+      Payment.deleteMany({ orderId }),
+      OrderSettlement.deleteMany({ orderId }),
+      OrderEvent.deleteMany({ orderId }),
+      ETALog.deleteMany({ orderId }),
+      AuditLog.deleteMany({ orderId }),
+    ]);
+
+    await Order.deleteOne({ _id: orderId });
+
+    return successResponse(res, 200, 'Order deleted permanently', {
+      orderId: order.orderId,
+      id: order._id,
+    });
+  } catch (error) {
     console.error('Error deleting order permanently:', error);
     return errorResponse(res, 500, 'Failed to delete order');
-  } finally {
-    await session.endSession();
   }
 });
 
