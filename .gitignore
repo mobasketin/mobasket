@@ -3,3 +3,6 @@ restaurant-webview-android/
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
+
+# Private server notes (access details, deployment state)
+SERVER_NOTES.md
