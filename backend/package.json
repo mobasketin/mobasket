@@ -5,8 +5,8 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node api.js && node server.js",
+    "dev": "node api.js && nodemon server.js",
     "test": "vitest run",
     "fix:hero-banner-indexes": "node scripts/fix-hero-banner-platform-indexes.js",
     "fix:hero-banner-swap": "node scripts/swap-hero-banner-platform-data.js",
