@@ -4,12 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
-    "build": "vite build",
+    "dev": "node init && vite --host",
+    "build": "node init && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "serve": "vite preview --host 0.0.0.0",
-    "start": "node server.js",
+    "start": "node init && node server.js",
     "prebuild": "node scripts/check-build-integrity.mjs"
   },
   "dependencies": {
